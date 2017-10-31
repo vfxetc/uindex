@@ -31,12 +31,15 @@ def _resumeable_walk(dir_, start):
     dirs = []
     non_dirs = []
 
-    for name in sorted(os.listdir(dir_)):
+    # NOTE: Since files and dirs are yielded at the same time, files after
+    # the start point may have already been processed, and will get
+    # processed again.
+
+    names = sorted(os.listdir(dir_))
+    for name in names:
 
         if this_start and this_start > name:
             continue
-        if this_start and name > this_start:
-            next_start = None
 
         if os.path.isdir(os.path.join(dir_, name)):
             dirs.append(name)
@@ -46,6 +49,10 @@ def _resumeable_walk(dir_, start):
     yield dir_, dirs, non_dirs
 
     for name in dirs:
+
+        if this_start and name > this_start:
+            next_start = None
+
         for x in _resumeable_walk(os.path.join(dir_, name), next_start):
             yield x
 
@@ -110,13 +117,35 @@ def main():
     parser.add_argument('-e', '--exclude', action='append', default=[])
     parser.add_argument('-o', '--out')
     parser.add_argument('-s', '--start')
+    parser.add_argument('-S', '--auto-start', action='store_true')
     parser.add_argument('-t', '--threads', type=int, default=1)
     parser.add_argument('-C', '--root', default=os.getcwd())
+    parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('path')
 
     args = parser.parse_args()
 
-    out = open(args.out, 'wb') if args.out else sys.stdout
+    if args.auto_start and args.start:
+        print >> sys.stderr, "--start and --auto-start don't work together."
+        exit(1)
+    if args.auto_start and not args.out:
+        print >> sys.stderr, "--auto-start requires --out."
+        exit(2)
+    if args.auto_start and not os.path.exists(args.out):
+        print >> sys.stderr, "--auto-start requires --out to exist."
+        exit(3)
+
+
+    if args.auto_start:
+        with open(args.out, 'rb') as out:
+            out.seek(-1000, 2)
+            last = out.read().splitlines()[-1]
+            rel_start = last.split('\t')[-1]
+            args.start = os.path.join(args.root, rel_start)
+            if args.verbose:
+                print 'Restarting at', args.start
+
+    out = open(args.out, 'ab' if (args.start or args.auto_start) else 'wb') if args.out else sys.stdout
 
     path_excludes = []
     name_excludes = []
@@ -136,7 +165,7 @@ def main():
         rel_path = os.path.relpath(abs_path, args.root)
         st = os.stat(abs_path)
 
-        out.write('\t'.join(str(x) for x in (
+        formatted = '\t'.join(str(x) for x in (
             checksum,
             '{:o}'.format(st.st_mode & 0o7777),
             st.st_size,
@@ -144,7 +173,10 @@ def main():
             st.st_gid,
             '{:.2f}'.format(st.st_mtime),
             rel_path,
-        )) + '\n')
+        ))
+        if args.verbose:
+            print formatted
+        out.write(formatted + '\n')
 
 if __name__ == '__main__':
     exit(main())
