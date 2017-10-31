@@ -31,10 +31,6 @@ def _resumeable_walk(dir_, start):
     dirs = []
     non_dirs = []
 
-    # NOTE: Since files and dirs are yielded at the same time, files after
-    # the start point may have already been processed, and will get
-    # processed again.
-
     names = sorted(os.listdir(dir_))
     for name in names:
 
@@ -46,7 +42,11 @@ def _resumeable_walk(dir_, start):
         else:
             non_dirs.append(name)
 
-    yield dir_, dirs, non_dirs
+    # Since files and dirs are yielded at the same time, files after
+    # the start point will have already been processed, and will get
+    # processed again unless we ignore this level entirely.
+    if not next_start:
+        yield dir_, dirs, non_dirs
 
     for name in dirs:
 
