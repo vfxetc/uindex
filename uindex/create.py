@@ -110,7 +110,7 @@ def _threaded_map(num_threads, func, *iterables):
         yield f.result()
 
 
-def main():
+def main(argv=None):
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-D', '--dots', action='store_true')
@@ -123,7 +123,7 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('path')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.auto_start and args.start:
         print >> sys.stderr, "--start and --auto-start don't work together."
