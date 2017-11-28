@@ -116,12 +116,12 @@ def main(argv=None):
     parser.add_argument('-D', '--dots', action='store_true')
     parser.add_argument('-e', '--exclude', action='append', default=[])
     parser.add_argument('-o', '--out')
-    parser.add_argument('-s', '--start')
+    parser.add_argument('-s', '--start', type=os.path.abspath)
     parser.add_argument('-S', '--auto-start', action='store_true')
     parser.add_argument('-t', '--threads', type=int, default=1)
-    parser.add_argument('-C', '--root', default=os.getcwd())
+    parser.add_argument('-C', '--root', type=os.path.abspath)
     parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('path')
+    parser.add_argument('path', type=os.path.abspath)
 
     args = parser.parse_args(argv)
 
@@ -131,19 +131,21 @@ def main(argv=None):
     if args.auto_start and not args.out:
         print >> sys.stderr, "--auto-start requires --out."
         exit(2)
-    if args.auto_start and not os.path.exists(args.out):
-        print >> sys.stderr, "--auto-start requires --out to exist."
-        exit(3)
 
+    if args.root is None:
+        args.root = args.path
 
     if args.auto_start:
-        with open(args.out, 'rb') as out:
-            out.seek(-1000, 2)
-            last = out.read().splitlines()[-1]
-            rel_start = last.split('\t')[-1]
-            args.start = os.path.join(args.root, rel_start)
-            if args.verbose:
-                print 'Restarting at', args.start
+        if os.path.exists(args.out):
+            with open(args.out, 'rb') as out:
+                out.seek(-1000, 2)
+                last = out.read().splitlines()[-1]
+                rel_start = last.split('\t')[-1]
+                args.start = os.path.join(args.root, rel_start)
+                if args.verbose:
+                    print 'Restarting at', args.start
+        elif args.verbose:
+            print >> sys.stderr, 'Output does not exist for --auto-start.'
 
     out = open(args.out, 'ab' if (args.start or args.auto_start) else 'wb') if args.out else sys.stdout
 
@@ -156,9 +158,6 @@ def main(argv=None):
             name_excludes.append(re.compile(r'^%s$' % raw.strip('/')))
     if not args.dots:
         name_excludes.append(re.compile(r'^\.'))
-
-    args.root = os.path.abspath(args.root)
-    args.path = os.path.abspath(args.path)
 
     for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes)):
 
