@@ -92,7 +92,14 @@ def _checksum_path(path):
     hasher = hashlib.sha256()
     with open(path, 'rb') as fh:
         while True:
-            chunk = fh.read(65536)
+            try:
+                chunk = fh.read(65536)
+            except IOError as e:
+                # For some reason, some files in "System Volume Information"
+                # throw an error no matter what you do.
+                if e.errno != 1:
+                    raise
+                return path, None
             if not chunk:
                 break
             hasher.update(chunk)
@@ -160,6 +167,10 @@ def main(argv=None):
         name_excludes.append(re.compile(r'^\.'))
 
     for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes)):
+
+        # Sometimes there are wierd errors.
+        if not checksum:
+            continue
 
         rel_path = os.path.relpath(abs_path, args.root)
         st = os.stat(abs_path)
