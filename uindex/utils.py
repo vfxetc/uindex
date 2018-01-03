@@ -14,3 +14,14 @@ def iter_raw_index(fh):
             print 'WARNING: Index parse failure at line {}: {}'.format(line_i, e)
             return
         yield Token(path, checksum, int(perms), int(size), int(uid), int(gid), float(mtime))
+
+
+def prompt_bool(prompt, default=True):
+    while True:
+        res = raw_input(prompt + ' [{}{}]: '.format('yY'[default], 'Nn'[default])).strip()
+        if not res:
+            return default
+        if res in ('y', 'Y', 'yes'):
+            return True
+        if res in ('n', 'N', 'no'):
+            return False
