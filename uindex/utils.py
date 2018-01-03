@@ -8,5 +8,9 @@ def iter_raw_index(fh):
         line = line.strip()
         if not line:
             continue
-        checksum, perms, size, uid, gid, mtime, path = line.split('\t')
+        try:
+            checksum, perms, size, uid, gid, mtime, path = line.split('\t')
+        except ValueError as e:
+            print 'WARNING: Index parse failure at line {}: {}'.format(line_i, e)
+            return
         yield Token(path, checksum, int(perms), int(size), int(uid), int(gid), float(mtime))
