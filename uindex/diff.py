@@ -33,11 +33,14 @@ def main():
         a = A[0]
         b = B[0]
 
-        if a == b:
+        ax = (a.path, a.checksum)
+        bx = (b.path, b.checksum)
+
+        if ax == bx:
             pop(A)
             pop(B)
 
-        elif a < b:
+        elif ax < bx:
             print '-', a.checksum, a.path
             pop(A)
             missing += 1
