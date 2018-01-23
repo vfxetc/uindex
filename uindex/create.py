@@ -37,9 +37,11 @@ def _resumeable_walk(dir_, start):
         if this_start and this_start > name:
             continue
 
-        if os.path.isdir(os.path.join(dir_, name)):
+        # We skip over things which are not directories or files.
+        path = os.path.join(dir_, name)
+        if os.path.isdir(path):
             dirs.append(name)
-        else:
+        elif os.path.isfile(path):
             non_dirs.append(name)
 
     # Since files and dirs are yielded at the same time, files after
