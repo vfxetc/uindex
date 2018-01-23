@@ -52,8 +52,10 @@ def main():
 
     for a in A:
         print '-', a.checksum, a.path
+        missing += 1
     for b in B:
-        print '-', b.checksum, b.path
+        print '+', b.checksum, b.path
+        extra += 1
 
     print '{} missing, {} extra.'.format(missing, extra)
     exit()
