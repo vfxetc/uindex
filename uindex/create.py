@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
+from Queue import Queue, Empty
 import argparse
 import datetime
 import functools
-import os
 import hashlib
-import sys
-import re
 import itertools
-
-from concurrent.futures import ThreadPoolExecutor
+import os
+import re
+import sys
+import threading
 
 
 
@@ -108,15 +108,83 @@ def _checksum_path(path):
     return path, hasher.hexdigest()
 
 
-def _threaded_map(num_threads, func, *iterables):
-    executor = ThreadPoolExecutor(num_threads)
-    futures = []
-    for args in itertools.izip(*iterables):
-        futures.append(executor.submit(func, *args))
-        if len(futures) > num_threads:
-            yield futures.pop(0).result()
-    for f in futures:
-        yield f.result()
+def _threaded_map(num_threads, func, *args_iters, **kwargs):
+
+    sorted = kwargs.pop('sorted', True)
+
+    work_queue = Queue(num_threads)
+    result_queue = Queue()
+    
+    results = {}
+    workers = []
+    alive = 0
+
+    scheduler = threading.Thread(target=_threaded_map_scheduler, args=(work_queue, args_iters))
+    scheduler.daemon = True
+    scheduler.start()
+
+    for _ in xrange(num_threads):
+        worker = threading.Thread(target=_threaded_map_target, args=(work_queue, result_queue, func))
+        worker.daemon = True
+        worker.start()
+        workers.append(worker)
+        alive += 1
+
+    next_job = 0
+    while alive:
+        
+        job, ok, result = result_queue.get()
+        if job is None:
+            alive -= 1
+            continue
+
+        if not sorted:
+            if ok:
+                yield result
+            else:
+                raise result
+            continue
+
+        results[job] = (ok, result)
+
+        while next_job in results:
+            ok, result = results.pop(next_job)
+            if ok:
+                yield result
+            else:
+                raise result
+            next_job += 1
+
+    for worker in workers:
+        if worker.is_alive():
+            raise ValueError('Worker survived.')
+
+
+def _threaded_map_scheduler(work_queue, args_iters):
+    try:
+        for i, args in enumerate(itertools.izip(*args_iters)):
+            work_queue.put((i, args))
+    finally:
+        for _ in xrange(num_threads):
+            work_queue.put((None, None))
+
+def _threaded_map_target(work_queue, result_queue, func):
+    try:
+        while True:
+            job, args = work_queue.get()
+            if args is None:
+                break
+            try:
+                result = func(*args)
+            except Exception as e:
+                result = e
+                ok = False
+            else:
+                ok = True
+            result_queue.put((job, ok, result))
+    finally:
+        result_queue.put((None, None, None))
+
 
 
 def main(argv=None):
@@ -127,6 +195,7 @@ def main(argv=None):
     parser.add_argument('-o', '--out')
     parser.add_argument('-s', '--start', type=os.path.abspath)
     parser.add_argument('-S', '--auto-start', action='store_true')
+    parser.add_argument('--sorted', action='store_true', help='Slower, but in order.')
     parser.add_argument('-t', '--threads', type=int, default=1)
     parser.add_argument('-C', '--root', type=os.path.abspath)
     parser.add_argument('-v', '--verbose', action='store_true')
@@ -168,7 +237,7 @@ def main(argv=None):
     if not args.dots:
         name_excludes.append(re.compile(r'^\.'))
 
-    for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes)):
+    for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes), sorted=args.sorted):
 
         # Sometimes there are wierd errors.
         if not checksum:
