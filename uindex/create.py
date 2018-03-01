@@ -119,7 +119,7 @@ def _threaded_map(num_threads, func, *args_iters, **kwargs):
     workers = []
     alive = 0
 
-    scheduler = threading.Thread(target=_threaded_map_scheduler, args=(work_queue, args_iters))
+    scheduler = threading.Thread(target=_threaded_map_scheduler, args=(num_threads, work_queue, args_iters))
     scheduler.daemon = True
     scheduler.start()
 
@@ -156,11 +156,12 @@ def _threaded_map(num_threads, func, *args_iters, **kwargs):
             next_job += 1
 
     for worker in workers:
+        worker.join(0.1)
         if worker.is_alive():
             raise ValueError('Worker survived.')
 
 
-def _threaded_map_scheduler(work_queue, args_iters):
+def _threaded_map_scheduler(num_threads, work_queue, args_iters):
     try:
         for i, args in enumerate(itertools.izip(*args_iters)):
             work_queue.put((i, args))
@@ -195,7 +196,7 @@ def main(argv=None):
     parser.add_argument('-o', '--out')
     parser.add_argument('-s', '--start', type=os.path.abspath)
     parser.add_argument('-S', '--auto-start', action='store_true')
-    parser.add_argument('--sorted', action='store_true', help='Slower, but in order.')
+    parser.add_argument('--unsorted', action='store_true', help='Faster, but might break auto-start.')
     parser.add_argument('-t', '--threads', type=int, default=1)
     parser.add_argument('-C', '--root', type=os.path.abspath)
     parser.add_argument('-v', '--verbose', action='store_true')
@@ -237,7 +238,7 @@ def main(argv=None):
     if not args.dots:
         name_excludes.append(re.compile(r'^\.'))
 
-    for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes), sorted=args.sorted):
+    for abs_path, checksum in _threaded_map(args.threads, _checksum_path, _iter_file_paths(args.path, args.start, path_excludes, name_excludes), sorted=not args.unsorted):
 
         # Sometimes there are wierd errors.
         if not checksum:
