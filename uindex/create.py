@@ -174,6 +174,7 @@ class Indexer(object):
         self.start = start
         self.verbosity = int(verbosity)
 
+        self.raw_excludes = excludes
         self.name_excludes = []
         self.path_excludes = []
 
@@ -267,18 +268,23 @@ class Indexer(object):
         self.total_count = total_count
         self.total_bytes = total_bytes
 
-    def run(self, out, threads=1, sorted=True):
+    def run(self, out, threads=1, sorted=True, header_extra=None):
 
         self.error_count = 0
 
         uuid = str(uuid4())
-        out.write('#scan-start {}\n'.format(json.dumps(dict(
+
+        header = dict(header_extra or {})
+        header.update(
             path_to_index=self.path_to_index,
             root=self.root,
             start=self.start,
             started_at=datetime.datetime.utcnow().isoformat('T'),
             uuid=uuid,
-        ), sort_keys=True)))
+            excludes=self.raw_excludes,
+        )
+
+        out.write('#scan-start {}\n'.format(json.dumps(header, sort_keys=True)))
 
         last_flush = time.time()
 
@@ -407,7 +413,16 @@ def main(argv=None):
         indexer.load_existing(args.out)
 
     out = open(args.out, 'ab' if (args.start or args.auto_start or args.update) else 'wb') if args.out else sys.stdout
-    indexer.run(out, threads=args.threads, sorted=not args.unsorted)
+    indexer.run(out,
+        threads=args.threads,
+        sorted=not args.unsorted,
+        header_extra=dict(
+            cli=dict(
+                argv=sys.argv,
+                cwd=os.getcwd(),
+            )
+        ),
+    )
 
 
 if __name__ == '__main__':
