@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 from Queue import Queue, Empty
+from uuid import uuid4
 import argparse
 import datetime
 import functools
@@ -13,7 +14,7 @@ import os
 import re
 import sys
 import threading
-from uuid import uuid4
+import time
 
 from .utils import iter_raw_index
 
@@ -277,6 +278,8 @@ class Indexer(object):
             uuid=uuid,
         ), sort_keys=True)))
 
+        last_flush = time.time()
+
         for (abs_path, rel_path, st), checksum in _threaded_map(
             threads,
             _checksum_path,
@@ -302,6 +305,11 @@ class Indexer(object):
             if self.verbosity:
                 print(formatted)
             out.write(formatted + '\n')
+
+            now = time.time()
+            if now - last_flush > 1:
+                out.flush()
+                last_flush = now
 
         out.write('#scan-end {}\n'.format(json.dumps(dict(
             added_count=self.added_count,
