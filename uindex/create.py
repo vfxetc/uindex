@@ -248,7 +248,9 @@ class Indexer(object):
 
                 entry = existing.get(rel_path)
                 if entry:
-                    if entry.size == st.st_size and int(entry.mtime) == int(st.st_mtime):
+                    # When writing, we round the mtime to 0.01, so we have to
+                    # do a fuzzy compare.
+                    if entry.size == st.st_size and abs(entry.mtime - st.st_mtime) < 0.02:
                         if self.verbosity > 1:
                             printerr("# Skipping unchanged {}".format(rel_path))
                         continue
