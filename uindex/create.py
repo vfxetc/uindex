@@ -227,7 +227,7 @@ class Indexer(object):
                             exclude = True
 
                         elif path_excludes:
-                            rel_path = os.path.relpath(os.path.join(dir_path, name), walk_root)
+                            rel_path = os.path.relpath(os.path.join(dir_path, name), root)
                             if any(r.match(rel_path) for r in path_excludes):
                                 exclude = True
 
