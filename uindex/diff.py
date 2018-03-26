@@ -11,6 +11,8 @@ from .utils import iter_raw_index
 def main():
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--prepend-a')
+    parser.add_argument('--prepend-b')
     parser.add_argument('a')
     parser.add_argument('b')
     args = parser.parse_args()
@@ -18,9 +20,9 @@ def main():
     missing = extra = 0
 
     print '---', args.a
-    A = sorted(iter_raw_index(open(args.a)), key=lambda x: x.path)
+    A = sorted(iter_raw_index(open(args.a), prepend_path=args.prepend_a), key=lambda x: x.path)
     print '+++', args.b
-    B = sorted(iter_raw_index(open(args.b)), key=lambda x: x.path)
+    B = sorted(iter_raw_index(open(args.b), prepend_path=args.prepend_b), key=lambda x: x.path)
 
     def pop(X):
         x = X.pop(0)

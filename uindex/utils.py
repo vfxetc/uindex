@@ -5,16 +5,25 @@ import sys
 
 Token = collections.namedtuple('Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime'])
 
-def iter_raw_index(fh):
+def iter_raw_index(fh, prepend_path=None):
+
+    prepend_path = prepend_path.strip('/') + '/' if prepend_path else prepend_path
+
     for line_i, line in enumerate(fh):
+
         line = line.strip()
         if not line or line[0] == '#':
             continue
+
         try:
             checksum, perms, size, uid, gid, mtime, path = line.split('\t')
         except ValueError as e:
             print('WARNING: Index parse failure at line {}: {}\n\t{!r}'.format(line_i, e, line), file=sys.stderr)
-            return
+            continue
+
+        if prepend_path:
+            path = prepend_path + path
+
         yield Token(path, checksum, int(perms), int(size), int(uid), int(gid), float(mtime))
 
 
