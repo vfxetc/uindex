@@ -1,30 +1,72 @@
 from __future__ import print_function
 
 import collections
+import json
 import sys
 
-Token = collections.namedtuple('Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime'])
+_Token = collections.namedtuple('_Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'inode', 'raw_time'])
+class Token(_Token):
+
+    def __new__(cls, path, checksum, perms, size, uid, gid, mtime, inode=None, prepend_path=None):
+        if prepend_path:
+            path = prepend_path + path
+        return super(Token, cls).__new__(cls,
+            path,
+            checksum,
+            int(perms, 8),
+            int(size),
+            int(uid),
+            int(gid),
+            float(mtime),
+            int(inode) if inode else None,
+            mtime,
+        )
+
+    @property
+    def epsilon(self):
+        try:
+            digits = self._raw_time.split('.')[1]
+        except IndexError:
+            return 0
+        return 2 * 10 ** -digits
+
+
 
 def iter_raw_index(fh, prepend_path=None):
 
     prepend_path = prepend_path.strip('/') + '/' if prepend_path else prepend_path
 
+    columns = None
+
     for line_i, line in enumerate(fh):
 
         line = line.strip()
-        if not line or line[0] == '#':
+        if not line:
             continue
 
-        try:
-            checksum, perms, size, uid, gid, mtime, path = line.split('\t')
-        except ValueError as e:
-            print('WARNING: Index parse failure at line {}: {}\n\t{!r}'.format(line_i, e, line), file=sys.stderr)
+        if line.startswith('#'):
+            if line.startswith('#scan-start'):
+                meta = json.loads(line.split(None, 1)[1])
+                columns = meta.get('columns')
+            continue
+
+        values = line.split('\t')
+        if columns is not None:
+            data = dict(zip(columns, values))
+        elif len(values) == 7:
+            # The first versions didn't specify columns.
+            data = dict(zip(
+                ('checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'path'),
+                values
+            ))
+        else:
+            print('WARNING: Index parse failure at line {}: {!r}'.format(line_i, line), file=sys.stderr)
             continue
 
         if prepend_path:
-            path = prepend_path + path
+            data['prepend_path'] = prepend_path
 
-        yield Token(path, checksum, int(perms), int(size), int(uid), int(gid), float(mtime))
+        yield Token(**data)
 
 
 def prompt_bool(prompt, default=True):

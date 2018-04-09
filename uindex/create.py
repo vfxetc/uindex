@@ -10,14 +10,24 @@ import functools
 import hashlib
 import itertools
 import json
+import math
 import os
 import re
+import stat
 import sys
 import threading
 import time
 
 from .utils import iter_raw_index
 
+
+# Stat times are nanoseconds underneath, but in Python 2 we
+# get floats, which have only 53 bits of precision. Since
+# time is seconds since the epoch, today we only have ~21.5 bits
+# for subsecond (slightly more than 6 digits), and that will
+# decrease as time goes on.
+STAT_TIME_DIGITS = int((53 - math.log(int(time.time()), 2)) / math.log(10, 2))
+STAT_TIME_EPSILON = 2 * 10 ** -STAT_TIME_DIGITS
 
 def resumeable_walk(dir_, start=None):
     if start:
@@ -66,8 +76,22 @@ def _resumeable_walk(dir_, start):
 
 
 
-def _checksum_path(to_index):
-    hasher = hashlib.sha256()
+_checksum_cache = {}
+
+def _checksum_path(to_index, algo_name='sha256'):
+
+    # We cache every checksum by device/inode so we don't bother re-indexing things which
+    # are hardlinked.
+    st = to_index[2]
+    cache_key = (st.st_dev, st.st_ino, algo_name)
+    try:
+        checksum, ctime = _checksum_cache[cache_key]
+        if ctime == st.st_ctime:
+            return to_index, checksum
+    except KeyError:
+        pass
+
+    hasher = getattr(hashlib, algo_name)()
     with open(to_index[0], 'rb') as fh:
         while True:
             try:
@@ -81,7 +105,10 @@ def _checksum_path(to_index):
             if not chunk:
                 break
             hasher.update(chunk)
-    return to_index, hasher.hexdigest()
+
+    checksum = '{}:{}'.format(algo_name, hasher.hexdigest())
+    _checksum_cache[cache_key] = checksum, st.st_ctime
+    return to_index, checksum
 
 
 def _threaded_map(num_threads, func, *args_iters, **kwargs):
@@ -167,12 +194,13 @@ def _threaded_map_target(work_queue, result_queue, func):
 class Indexer(object):
 
     def __init__(self, path_to_index, root=None, start=None, excludes=(),
-        include_dotfiles=False, verbosity=0):
+        include_dotfiles=False, checksum_algo='sha256', verbosity=0):
 
         self.path_to_index = os.path.abspath(path_to_index)
         self.root = os.path.abspath(root or self.path_to_index)
         self.start = start
         self.verbosity = int(verbosity)
+        self.checksum_algo = checksum_algo
 
         self.raw_excludes = excludes
         self.name_excludes = []
@@ -204,15 +232,18 @@ class Indexer(object):
 
     def _iter_file_paths(self):
 
+        # Early-binding fo speed.
         path_excludes = self.path_excludes
         name_excludes = self.name_excludes
         existing = self.existing
         root = self.root
+        S_ISREG = stat.S_ISREG
 
         added_count = 0
         added_bytes = 0
         total_count = 0
         total_bytes = 0
+
 
         for dir_path, dir_names, file_names in resumeable_walk(self.path_to_index, self.start):
 
@@ -242,16 +273,20 @@ class Indexer(object):
 
                 abs_path = os.path.join(dir_path, name)
                 rel_path = os.path.relpath(abs_path, root)
-                st = os.stat(abs_path)
+                st = os.lstat(abs_path)
+
+                # We only care about actual files.
+                if not S_ISREG(st.st_mode):
+                    continue
 
                 total_count += 1
                 total_bytes += st.st_size
 
                 entry = existing.get(rel_path)
                 if entry:
-                    # When writing, we round the mtime to 0.01, so we have to
+                    # When writing, we used to round the mtime to 0.01, so we have to
                     # do a fuzzy compare.
-                    if entry.size == st.st_size and abs(entry.mtime - st.st_mtime) < 0.02:
+                    if entry.size == st.st_size and abs(entry.mtime - st.st_mtime) < entry.epsilon:
                         if self.verbosity > 1:
                             printerr("# Skipping unchanged {}".format(rel_path))
                         continue
@@ -282,6 +317,17 @@ class Indexer(object):
             started_at=datetime.datetime.utcnow().isoformat('T'),
             uuid=uuid,
             excludes=self.raw_excludes,
+            checksum_algo=self.checksum_algo,
+            columns='''
+                checksum
+                inode
+                perms
+                size
+                uid
+                gid
+                mtime
+                path
+            '''.strip().split()
         )
 
         out.write('#scan-start {}\n'.format(json.dumps(header, sort_keys=True)))
@@ -292,6 +338,7 @@ class Indexer(object):
             threads,
             _checksum_path,
             self._iter_file_paths(),
+            itertools.cycle((self.checksum_algo, )),
             sorted=sorted,
         ):
 
@@ -303,11 +350,14 @@ class Indexer(object):
 
             formatted = '\t'.join(str(x) for x in (
                 checksum,
+                st.st_ino,
                 '{:o}'.format(st.st_mode & 0o7777),
                 st.st_size,
                 st.st_uid,
                 st.st_gid,
-                '{:.2f}'.format(st.st_mtime),
+
+                '{:.{}f}'.format(st.st_mtime, STAT_TIME_DIGITS),
+
                 rel_path,
             ))
             if self.verbosity:
@@ -365,6 +415,8 @@ def main(argv=None):
 
     parser.add_argument('-t', '--threads', type=int, default=1,
         help="How many threads to run at once.")
+    parser.add_argument('-H', '--checksum-algo', default='sha256',
+        help="Which hashlib algorithm to use.")
 
     parser.add_argument('-C', '--root', type=os.path.abspath,
         help="Root from which relative paths will be derived.")
@@ -395,6 +447,7 @@ def main(argv=None):
         root=args.root,
         excludes=args.exclude,
         include_dotfiles=args.include_dotfiles,
+        checksum_algo=args.checksum_algo,
         verbosity=args.verbose,
     )
 
