@@ -239,11 +239,10 @@ class Indexer(object):
         root = self.root
         S_ISREG = stat.S_ISREG
 
-        added_count = 0
-        added_bytes = 0
-        total_count = 0
-        total_bytes = 0
-
+        self.added_count = added_count = 0
+        self.added_bytes = added_bytes = 0
+        self.total_count = total_count = 0
+        self.total_bytes = total_bytes = 0
 
         for dir_path, dir_names, file_names in resumeable_walk(self.path_to_index, self.start):
 
@@ -286,6 +285,7 @@ class Indexer(object):
                 if entry:
                     # When writing, we used to round the mtime to 0.01, so we have to
                     # do a fuzzy compare.
+                    # TODO: Should we be checking ctime or mtime here?
                     if entry.size == st.st_size and abs(entry.mtime - st.st_mtime) < entry.epsilon:
                         if self.verbosity > 1:
                             printerr("# Skipping unchanged {}".format(rel_path))
@@ -326,6 +326,7 @@ class Indexer(object):
                 uid
                 gid
                 mtime
+                ctime
                 path
             '''.strip().split()
         )
@@ -357,6 +358,7 @@ class Indexer(object):
                 st.st_gid,
 
                 '{:.{}f}'.format(st.st_mtime, STAT_TIME_DIGITS),
+                '{:.{}f}'.format(st.st_ctime, STAT_TIME_DIGITS),
 
                 rel_path,
             ))

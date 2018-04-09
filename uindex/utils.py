@@ -4,10 +4,10 @@ import collections
 import json
 import sys
 
-_Token = collections.namedtuple('_Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'inode', 'raw_time'])
+_Token = collections.namedtuple('_Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'ctime', 'inode', 'raw_time'])
 class Token(_Token):
 
-    def __new__(cls, path, checksum, perms, size, uid, gid, mtime, inode=None, prepend_path=None):
+    def __new__(cls, path, checksum, perms, size, uid, gid, ctime, inode=None, prepend_path=None):
         if prepend_path:
             path = prepend_path + path
         return super(Token, cls).__new__(cls,
@@ -18,8 +18,9 @@ class Token(_Token):
             int(uid),
             int(gid),
             float(mtime),
+            float(ctime),
             int(inode) if inode else None,
-            mtime,
+            ctime,
         )
 
     @property
