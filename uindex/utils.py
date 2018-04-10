@@ -7,20 +7,20 @@ import sys
 _Token = collections.namedtuple('_Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'ctime', 'inode', 'raw_time'])
 class Token(_Token):
 
-    def __new__(cls, path, checksum, perms, size, uid, gid, ctime, inode=None, prepend_path=None):
+    def __new__(cls, path, checksum, perms, size, uid, gid, mtime, ctime=None, inode=None, prepend_path=None):
         if prepend_path:
             path = prepend_path + path
         return super(Token, cls).__new__(cls,
             path,
-            checksum,
+            checksum.split(':')[-1],
             int(perms, 8),
             int(size),
             int(uid),
             int(gid),
             float(mtime),
-            float(ctime),
+            float(ctime) if ctime else None,
             int(inode) if inode else None,
-            ctime,
+            ctime or mtime,
         )
 
     @property

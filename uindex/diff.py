@@ -17,7 +17,7 @@ def main():
     parser.add_argument('b')
     args = parser.parse_args()
 
-    missing = extra = 0
+    match = missing = extra = 0
 
     print '---', args.a
     A = sorted(iter_raw_index(open(args.a), prepend_path=args.prepend_a), key=lambda x: x.path)
@@ -41,6 +41,7 @@ def main():
         if ax == bx:
             pop(A)
             pop(B)
+            match += 1
 
         elif ax < bx:
             print '-', a.checksum, a.path
@@ -59,7 +60,7 @@ def main():
         print '+', b.checksum, b.path
         extra += 1
 
-    print '{} missing, {} extra.'.format(missing, extra)
+    print '{} match, {} missing, {} extra.'.format(match, missing, extra)
     exit()
 
 
