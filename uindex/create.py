@@ -29,6 +29,16 @@ from .utils import iter_raw_index
 STAT_TIME_DIGITS = int((53 - math.log(int(time.time()), 2)) / math.log(10, 2))
 STAT_TIME_EPSILON = 2 * 10 ** -STAT_TIME_DIGITS
 
+
+def parse_size(x):
+    m = re.match(r'^(\d+)([BkMG])$', x)
+    if not m:
+        raise ValueError("Could not parse size.", x)
+
+    num, unit = m.groups()
+    return int(num) * (1024 ** dict(B=0, k=1, M=2, G=3)[unit])
+
+
 def resumeable_walk(dir_, start=None):
     if start:
         start = os.path.relpath(os.path.join(dir_, start), dir_)
@@ -78,12 +88,22 @@ def _resumeable_walk(dir_, start):
 
 _checksum_cache = {}
 
-def _checksum_path(to_index, algo_name='sha256'):
+def _checksum_path(to_index, indexer):
+
+    algo_name = indexer.checksum_algo
+    head = indexer.head
+    tail = indexer.tail
+    
+    algo_key = algo_name
+    if head:
+        algo_key = '{},h={}'.format(algo_key, indexer.raw_head)
+    if tail:
+        algo_key = '{},t={}'.format(algo_key, indexer.raw_tail)
 
     # We cache every checksum by device/inode so we don't bother re-indexing things which
     # are hardlinked.
     st = to_index[2]
-    cache_key = (st.st_dev, st.st_ino, algo_name)
+    cache_key = (st.st_dev, st.st_ino, algo_key)
     try:
         checksum, ctime = _checksum_cache[cache_key]
         if ctime == st.st_ctime:
@@ -93,20 +113,44 @@ def _checksum_path(to_index, algo_name='sha256'):
 
     hasher = getattr(hashlib, algo_name)()
     with open(to_index[0], 'rb') as fh:
-        while True:
-            try:
-                chunk = fh.read(65536)
-            except IOError as e:
-                # For some reason, some files in "System Volume Information"
-                # throw an error no matter what you do.
-                if e.errno != 1:
-                    raise
-                return to_index, None
-            if not chunk:
-                break
-            hasher.update(chunk)
+        
+        loc = 0
 
-    checksum = '{}:{}'.format(algo_name, hasher.hexdigest())
+        for todo, is_tail in ((head, False), (tail, True)):
+
+            if is_tail:
+                if tail:
+                    # Only do the remaining parts.
+                    offset = max(loc, st.st_size - tail)
+                    if offset == loc:
+                        continue
+                    fh.seek(offset)
+                else:
+                    # Don't bother with the tail if it isn't requested.
+                    continue
+
+            chunksize = 65536
+            while todo is None or todo > 0:
+                if todo:
+                    chunksize = min(chunksize, todo)
+                try:
+                    chunk = fh.read(chunksize)
+                except IOError as e:
+                    # For some reason, some files in "System Volume Information"
+                    # throw an error no matter what you do.
+                    if e.errno != 1:
+                        raise
+                    return to_index, None
+                if not chunk:
+                    break
+                if todo:
+                    todo -= len(chunk)    
+                hasher.update(chunk)
+
+            loc = fh.tell()
+
+
+    checksum = '{}:{}'.format(algo_key, hasher.hexdigest())
     _checksum_cache[cache_key] = checksum, st.st_ctime
     return to_index, checksum
 
@@ -194,13 +238,18 @@ def _threaded_map_target(work_queue, result_queue, func):
 class Indexer(object):
 
     def __init__(self, path_to_index, root=None, start=None, excludes=(),
-        include_dotfiles=False, checksum_algo='sha256', verbosity=0):
+        include_dotfiles=False, head=None, tail=None, checksum_algo='sha256', verbosity=0):
 
         self.path_to_index = os.path.abspath(path_to_index)
         self.root = os.path.abspath(root or self.path_to_index)
         self.start = start
         self.verbosity = int(verbosity)
         self.checksum_algo = checksum_algo
+
+        self.raw_head = head
+        self.head = parse_size(head) if head else None
+        self.raw_tail = tail
+        self.tail = parse_size(tail) if tail else None
 
         self.raw_excludes = excludes
         self.name_excludes = []
@@ -318,6 +367,8 @@ class Indexer(object):
             uuid=uuid,
             excludes=self.raw_excludes,
             checksum_algo=self.checksum_algo,
+            head=self.head,
+            tail=self.tail,
             columns='''
                 checksum
                 inode
@@ -339,7 +390,7 @@ class Indexer(object):
             threads,
             _checksum_path,
             self._iter_file_paths(),
-            itertools.cycle((self.checksum_algo, )),
+            itertools.cycle((self, )),
             sorted=sorted,
         ):
 
@@ -415,6 +466,11 @@ def main(argv=None):
     parser.add_argument('--unsorted', action='store_true',
         help="Will lose less work if there is a crash, but --auto-start will skip over any lost work.")
 
+    parser.add_argument('--head',
+        help="How much of front of file to checksum.")
+    parser.add_argument('--tail',
+        help="How much of end of file to checksum.")
+
     parser.add_argument('-t', '--threads', type=int, default=1,
         help="How many threads to run at once.")
     parser.add_argument('-H', '--checksum-algo', default='sha256',
@@ -450,6 +506,8 @@ def main(argv=None):
         excludes=args.exclude,
         include_dotfiles=args.include_dotfiles,
         checksum_algo=args.checksum_algo,
+        head=args.head,
+        tail=args.tail,
         verbosity=args.verbose,
     )
 
