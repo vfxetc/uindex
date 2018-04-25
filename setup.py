@@ -17,9 +17,9 @@ setup(
     
     entry_points={
         'console_scripts': '''
-            uindex-create = uindex.index.create:main
-            uindex-dedupe = uindex.index.dedupe:main
-            uindex-diff = uindex.index.diff:main
+            uindex-create = uindex.create:main
+            uindex-dedupe = uindex.dedupe:main
+            uindex-diff = uindex.diff:main
         ''',
     },
 
