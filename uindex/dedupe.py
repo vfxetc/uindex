@@ -1,97 +1,135 @@
+from __future__ import print_function
+
 import argparse
 import os
 
-from .utils import iter_raw_index, prompt_bool
+from .utils import prompt_bool, format_bytes
+from .parse import iter_entries
+
+
+def iter_relpaths(path):
+    chunks = path.split('/')
+    for i in xrange(len(chunks)):
+        yield '/'.join(chunks[i:])
 
 
 def main():
 
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('-v', '--verbose', action='store_true')
+    parser.add_argument('-v', '--verbose', action='count', default=0)
 
     parser.add_argument('-n', '--dry-run', action='store_true',
         help="Always say no.")
     parser.add_argument('-y', '--yes', action='store_true',
         help="Always say yes.")
     
-    parser.add_argument('-C', '--root', type=os.path.abspath,
+    parser.add_argument('-C', '--root', type=os.path.abspath, default=os.getcwd(),
         help="The root to manipulate files in.")
     
-    parser.add_argument('-d', '--delete-matching',
-        help="Delete files in our root that also exist in this index.")
-    parser.add_argument('-H', '--link-self', action='store_true')
+    # internal_args = parser.add_argument_group('Dedupe internal')
+    # internal_args.add_argument('-H', '--link-self', action='store_true',
+    #     help="Hardlink together matching files.")
 
-    parser.add_argument('-p', '--pop', type=int,
-        help="How many segments to pop off front of paths.")
-    parser.add_argument('-P', '--prefix',
-        help="Prefix to add in front of paths.")
-    parser.add_argument('-N', '--match-by-name', action='store_true')
+    external_args = parser.add_argument_group('Dedupe external',
+        description="Delete files here that match an external index. --delete-matching triggers this mode.")
+    external_args.add_argument('-d', '--delete-matching',
+        help="Delete files in our root that also exist in this index.")
+
+    external_args.add_argument('-p', '--pop-path', metavar="NUM", type=int,
+        help="Segments to pop off front of paths before matching.")
+    external_args.add_argument('-P', '--prepend-path',
+        help="Prefix to add in front of paths before matching.")
+
+    external_args.add_argument('-U', '--match-unique-relpath', action='store_true',
+        help="Relax matching so that only a relative path must be unique. It is "
+             "possible that only the name of the file matches, as long as it is unique.")
+    external_args.add_argument('-N', '--match-name', action='store_true',
+        help="Relax matching so that names must match, but they need not be unique.")
+    external_args.add_argument('-S', '--match-minsize', metavar="SIZE", type=int,
+        help="Relax matching so that only checksums must match, as long as the "
+             "file size is at least this large.")
 
     parser.add_argument('index')
 
     args = parser.parse_args()
 
-    if args.verbose:
-        print 'Loading', args.index
+    def verbose(lvl, *a, **kwargs):
+        if args.verbose >= lvl:
+            print(*a, **kwargs)
+
+    verbose(1, 'Loading', args.index)
 
     bytes_ = 0
     dupes = 0
 
-    checksum_to_paths = {}
-    for token in iter_raw_index(open(args.index)):
-        path = token.path
-        if args.pop:
-            path = path.split('/', args.pop)[-1]
-        if token.checksum in checksum_to_paths:
-            bytes_ += token.size
+    by_checksum = {}
+    for entry in iter_entries(open(args.index), pop_path=args.pop_path, prepend_path=args.prepend_path):
+        if entry.checksum in by_checksum:
+            bytes_ += entry.size
             dupes += 1
-        checksum_to_paths.setdefault(token.checksum, set()).add(path)
-
-    if args.verbose:
-        print '{}G duplicated across {} files.'.format(bytes_ / 1024**3, dupes)
+        by_checksum.setdefault((entry.checksum, entry.size), []).append(entry)
+    
+    verbose(1, '{} internal dupes (by checksum) across {} files.'.format(format_bytes(bytes_), dupes))
 
     if args.delete_matching:
 
         bytes_ = 0
 
-        for token in iter_raw_index(open(args.delete_matching)):
+        for entry in iter_entries(open(args.delete_matching)):
 
-            existing_paths = checksum_to_paths.get(token.checksum)
-            if not existing_paths:
+            self_entries = by_checksum.get((entry.checksum, entry.size))
+            if not self_entries:
                 continue
-            
-            path = token.path
 
-            if args.match_by_name:
-                existing_names = set(os.path.basename(x) for x in existing_paths)
+            path = entry.path
+
+            # Check the matching conditions, from most to least relaxed.
+            
+            if args.match_minsize:
+                matches = self_entries if entry.size >= args.match_minsize else ()
+
+            elif args.match_name:
                 name = os.path.basename(path)
-                exists = name in existing_names
+                matches = [e for e in self_entries if os.path.basename(e.path) == name]
+
+            elif args.match_unique_relpath:
+                
+                by_relpath = {}
+                for e in self_entries:
+                    for relpath in iter_relpaths(e.path):
+                        by_relpath.setdefault(relpath, []).append(e)
+
+                matches = set()
+                for relpath in iter_relpaths(entry.path):
+                    entries = by_relpath.get(relpath)
+                    if entries and len(entries) == 1:
+                        matches.add(entries[0])
+                matches = list(matches)
+
             else:
-                exists = path in existing_paths
+                matches = [e for e in self_entries if path == e.path]
 
-            if not exists:
-                print '{} in both at {} different names(s):'.format(token.checksum, len(existing_paths))
-                print '\t{}'.format(path)
-                print '\t{}'.format(sorted(existing_paths)[0])
-                continue
-            
-            bytes_ += token.size
+            if len(matches) != len(self_entries):
+                print('{} in both at {} non-matching paths(s) (of {}):'.format(entry.checksum, len(self_entries) - len(matches), len(self_entries)))
+                print('\tint: {}'.format(path))
+                print('\text: {}'.format(sorted(e.path for e in self_entries if e not in matches)[0]))
 
-            if args.verbose:
-                print '{}G; {} in both at {}'.format(bytes_ / (1024**3), token.checksum, path)
+            for match in matches:
 
-            if args.root:
-                abspath = os.path.join(args.root, path)
-            else:
-                abspath = os.path.abspath(path)
+                bytes_ += entry.size
 
-            if os.path.exists(abspath):
-                if args.yes or (args.verbose and args.dry_run) or prompt_bool("Delete {}?".format(abspath)):
-                    if args.verbose:
-                        print '\t$ rm', abspath
-                    if not args.dry_run:
-                        os.unlink(abspath)
+                verbose(1, '{}G; {} at {}'.format(bytes_ / (1024**3), entry.checksum, match.path))
+                abspath = os.path.join(args.root, match.path)
+
+                if os.path.exists(abspath):
+                    if args.yes or (args.verbose and args.dry_run) or prompt_bool("Delete {}?".format(abspath)):
+                        if args.verbose:
+                            print('\t$ rm', abspath)
+                        if not args.dry_run:
+                            os.unlink(abspath)
+                else:
+                    verbose(1, 'Cannot find local file:\n\t{}'.format(abspath))
 
 
 

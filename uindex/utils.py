@@ -1,73 +1,30 @@
 from __future__ import print_function
 
-import collections
-import json
-import sys
+import functools
+import re
 
-_Token = collections.namedtuple('_Token', ['path', 'checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'ctime', 'inode', 'raw_time'])
-class Token(_Token):
 
-    def __new__(cls, path, checksum, perms, size, uid, gid, mtime, ctime=None, inode=None, prepend_path=None):
-        if prepend_path:
-            path = prepend_path + path
-        return super(Token, cls).__new__(cls,
-            path,
-            checksum.split(':')[-1],
-            int(perms, 8),
-            int(size),
-            int(uid),
-            int(gid),
-            float(mtime),
-            float(ctime) if ctime else None,
-            int(inode) if inode else None,
-            ctime or mtime,
-        )
-
-    @property
-    def epsilon(self):
+class cached_property(object):
+    
+    def __init__(self, func):
+        functools.update_wrapper(self, func)
+        self.func = func
+    
+    def __get__(self, instance, owner_type=None):
+        if instance is None:
+            return self
         try:
-            digits = self._raw_time.split('.')[1]
-        except IndexError:
-            return 0
-        return 2 * 10 ** -digits
+            return instance.__dict__[self.__name__]
+        except KeyError:
+            value = self.func(instance)
+            instance.__dict__[self.__name__] = value
+            return value
 
 
 
-def iter_raw_index(fh, prepend_path=None):
 
-    prepend_path = prepend_path.strip('/') + '/' if prepend_path else prepend_path
 
-    columns = None
 
-    for line_i, line in enumerate(fh):
-
-        line = line.strip()
-        if not line:
-            continue
-
-        if line.startswith('#'):
-            if line.startswith('#scan-start'):
-                meta = json.loads(line.split(None, 1)[1])
-                columns = meta.get('columns')
-            continue
-
-        values = line.split('\t')
-        if columns is not None:
-            data = dict(zip(columns, values))
-        elif len(values) == 7:
-            # The first versions didn't specify columns.
-            data = dict(zip(
-                ('checksum', 'perms', 'size', 'uid', 'gid', 'mtime', 'path'),
-                values
-            ))
-        else:
-            print('WARNING: Index parse failure at line {}: {!r}'.format(line_i, line), file=sys.stderr)
-            continue
-
-        if prepend_path:
-            data['prepend_path'] = prepend_path
-
-        yield Token(**data)
 
 
 def prompt_bool(prompt, default=True):
@@ -79,3 +36,21 @@ def prompt_bool(prompt, default=True):
             return True
         if res in ('n', 'N', 'no'):
             return False
+
+
+
+def parse_size(x):
+    m = re.match(r'^(\d+)([BkMG])$', x)
+    if not m:
+        raise ValueError("Could not parse size.", x)
+
+    num, unit = m.groups()
+    return int(num) * (1024 ** dict(B=0, k=1, M=2, G=3)[unit])
+
+def format_bytes(x):
+    unit = 0
+    while x > 1000:
+        unit += 1
+        x /= 1024.0
+    num = '{:.3f}'.format(x).rstrip('0').rstrip('.')
+    return '{}{}B'.format(num, ('', 'k', 'M', 'G', 'T', 'P')[unit])

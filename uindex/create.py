@@ -18,7 +18,8 @@ import sys
 import threading
 import time
 
-from .utils import iter_raw_index
+from .parse import iter_entries
+from .utils import parse_size
 
 
 # Stat times are nanoseconds underneath, but in Python 2 we
@@ -27,16 +28,6 @@ from .utils import iter_raw_index
 # for subsecond (slightly more than 6 digits), and that will
 # decrease as time goes on.
 STAT_TIME_DIGITS = int((53 - math.log(int(time.time()), 2)) / math.log(10, 2))
-STAT_TIME_EPSILON = 2 * 10 ** -STAT_TIME_DIGITS
-
-
-def parse_size(x):
-    m = re.match(r'^(\d+)([BkMG])$', x)
-    if not m:
-        raise ValueError("Could not parse size.", x)
-
-    num, unit = m.groups()
-    return int(num) * (1024 ** dict(B=0, k=1, M=2, G=3)[unit])
 
 
 def resumeable_walk(dir_, start=None):
@@ -275,7 +266,7 @@ class Indexer(object):
     def load_existing(self, input_):
         if isinstance(input_, basestring):
             input_ = open(input_, 'rb')
-        for entry in iter_raw_index(input_):
+        for entry in iter_entries(input_):
             self.existing[entry.path] = entry
 
 
@@ -503,6 +494,7 @@ def main(argv=None):
     indexer = Indexer(
         path_to_index=args.path,
         root=args.root,
+        start=args.start,
         excludes=args.exclude,
         include_dotfiles=args.include_dotfiles,
         checksum_algo=args.checksum_algo,

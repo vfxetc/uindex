@@ -1,11 +1,7 @@
 import argparse
-import heapq
 import collections
 
-from .utils import iter_raw_index
-
-
-
+from .parse import iter_entries
 
 
 def main():
@@ -20,9 +16,9 @@ def main():
     match = missing = extra = 0
 
     print '---', args.a
-    A = sorted(iter_raw_index(open(args.a), prepend_path=args.prepend_a), key=lambda x: x.path)
+    A = sorted(iter_entries(open(args.a), prepend_path=args.prepend_a), key=lambda x: x.path)
     print '+++', args.b
-    B = sorted(iter_raw_index(open(args.b), prepend_path=args.prepend_b), key=lambda x: x.path)
+    B = sorted(iter_entries(open(args.b), prepend_path=args.prepend_b), key=lambda x: x.path)
 
     def pop(X):
         x = X.pop(0)
