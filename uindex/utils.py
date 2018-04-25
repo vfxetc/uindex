@@ -39,13 +39,13 @@ def prompt_bool(prompt, default=True):
 
 
 
-def parse_size(x):
-    m = re.match(r'^(\d+)([BkMG])$', x)
+def parse_bytes(x):
+    m = re.match(r'^(\d+)([kMGTP])?B?$', x)
     if not m:
         raise ValueError("Could not parse size.", x)
-
     num, unit = m.groups()
-    return int(num) * (1024 ** dict(B=0, k=1, M=2, G=3)[unit])
+    return int(num) * (1024 ** (None, 'k', 'M', 'G', 'T', 'P').index(unit))
+
 
 def format_bytes(x):
     unit = 0

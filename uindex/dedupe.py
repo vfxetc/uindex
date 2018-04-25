@@ -3,7 +3,7 @@ from __future__ import print_function
 import argparse
 import os
 
-from .utils import prompt_bool, format_bytes
+from .utils import prompt_bool, format_bytes, parse_bytes
 from .parse import iter_entries
 
 
@@ -46,9 +46,11 @@ def main():
              "possible that only the name of the file matches, as long as it is unique.")
     external_args.add_argument('-N', '--match-name', action='store_true',
         help="Relax matching so that names must match, but they need not be unique.")
-    external_args.add_argument('-S', '--match-minsize', metavar="SIZE", type=int,
-        help="Relax matching so that only checksums must match, as long as the "
-             "file size is at least this large.")
+    external_args.add_argument('-C', '--match-checksum', action='store_true',
+        help="Relax matching so that names need not match at all.")
+
+    external_args.add_argument('-S', '--minsize', metavar="SIZE", type=parse_bytes,
+        help="Tighten matching so that file size is at least this large.")
 
     parser.add_argument('index')
 
@@ -86,14 +88,15 @@ def main():
 
             # Check the matching conditions, from most to least relaxed.
             
-            if args.match_minsize:
-                matches = self_entries if entry.size >= args.match_minsize else ()
+
+            if args.match_checksum:
+                matches = self_entries[:]
 
             elif args.match_name:
                 name = os.path.basename(path)
                 matches = [e for e in self_entries if os.path.basename(e.path) == name]
 
-            elif args.match_unique_relpath:
+            if args.match_unique_relpath:
                 
                 by_relpath = {}
                 for e in self_entries:
@@ -109,6 +112,9 @@ def main():
 
             else:
                 matches = [e for e in self_entries if path == e.path]
+
+            if args.minsize:
+                matches = [e for e in matches if e.size >= args.minsize]
 
             if len(matches) != len(self_entries):
                 print('{} in both at {} non-matching paths(s) (of {}):'.format(entry.checksum, len(self_entries) - len(matches), len(self_entries)))

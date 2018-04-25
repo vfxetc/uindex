@@ -19,7 +19,7 @@ import threading
 import time
 
 from .parse import iter_entries
-from .utils import parse_size
+from .utils import parse_bytes
 
 
 # Stat times are nanoseconds underneath, but in Python 2 we
@@ -238,9 +238,9 @@ class Indexer(object):
         self.checksum_algo = checksum_algo
 
         self.raw_head = head
-        self.head = parse_size(head) if head else None
+        self.head = parse_bytes(head) if head else None
         self.raw_tail = tail
-        self.tail = parse_size(tail) if tail else None
+        self.tail = parse_bytes(tail) if tail else None
 
         self.raw_excludes = excludes
         self.name_excludes = []
