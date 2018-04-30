@@ -46,7 +46,7 @@ def main():
              "possible that only the name of the file matches, as long as it is unique.")
     external_args.add_argument('-N', '--match-name', action='store_true',
         help="Relax matching so that names must match, but they need not be unique.")
-    external_args.add_argument('-C', '--match-checksum', action='store_true',
+    external_args.add_argument('--match-checksum', action='store_true',
         help="Relax matching so that names need not match at all.")
 
     external_args.add_argument('-S', '--minsize', metavar="SIZE", type=parse_bytes,
