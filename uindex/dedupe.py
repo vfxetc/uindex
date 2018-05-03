@@ -96,7 +96,7 @@ def main():
                 name = os.path.basename(path)
                 matches = [e for e in self_entries if os.path.basename(e.path) == name]
 
-            if args.match_unique_relpath:
+            elif args.match_unique_relpath:
                 
                 by_relpath = {}
                 for e in self_entries:
