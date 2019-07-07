@@ -6,7 +6,7 @@ import sys
 from .entry import Entry
 
 
-def iter_entries(fh, pop_path=None, prepend_path=None):
+def iter_entries(fh, pop_path=None, prepend_path=None, search_path=None, invert_search=False, replace_path=None):
 
     meta = None
     columns = None
@@ -33,14 +33,23 @@ def iter_entries(fh, pop_path=None, prepend_path=None):
                 values
             ))
         else:
-            print('WARNING: Index parse failure at line {}: {!r}'.format(line_i, line), file=sys.stderr)
+            print('WARNING: Index parse failure at line {}; {}'.format(line_i, values), file=sys.stderr)
             continue
 
         entry = Entry(meta=None, **data)
+
         if pop_path:
             entry.pop_path(pop_path)
         if prepend_path:
             entry.prepend_path(prepend_path)
+        if replace_path:
+            entry.replace_path(*replace_path)
 
+        if search_path:
+            found = entry.search_path(search_path)
+            found = (not found) if invert_search else found
+            if not found:
+                continue
+        
         yield entry
 

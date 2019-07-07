@@ -1,5 +1,6 @@
 import argparse
 import collections
+import re
 
 from .parse import iter_entries
 
@@ -7,8 +8,13 @@ from .parse import iter_entries
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--prepend-a')
-    parser.add_argument('--prepend-b')
+    parser.add_argument('--prepend-a', '--pa')
+    parser.add_argument('--prepend-b', '--pb')
+    parser.add_argument('--search-a', '--sa')
+    parser.add_argument('--search-b', '--sb')
+    parser.add_argument('--replace-a', '--ra', nargs=2)
+    parser.add_argument('--replace-b', '--rb', nargs=2)
+    parser.add_argument('-v', '--invert-search', action='store_true')
     parser.add_argument('a')
     parser.add_argument('b')
     args = parser.parse_args()
@@ -16,9 +22,20 @@ def main():
     match = missing = extra = 0
 
     print '---', args.a
-    A = sorted(iter_entries(open(args.a), prepend_path=args.prepend_a), key=lambda x: x.path)
+    A = sorted(iter_entries(open(args.a),
+        prepend_path=args.prepend_a,
+        replace_path=args.replace_a,
+        search_path=args.search_a,
+        invert_search=args.invert_search,
+    ), key=lambda x: x.path)
+
     print '+++', args.b
-    B = sorted(iter_entries(open(args.b), prepend_path=args.prepend_b), key=lambda x: x.path)
+    B = sorted(iter_entries(open(args.b),
+        prepend_path=args.prepend_b,
+        replace_path=args.replace_b,
+        search_path=args.search_b,
+        invert_search=args.invert_search,
+    ), key=lambda x: x.path)
 
     def pop(X):
         x = X.pop(0)

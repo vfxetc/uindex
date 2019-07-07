@@ -1,3 +1,5 @@
+import re
+
 from .utils import cached_property
 
 
@@ -37,3 +39,10 @@ class Entry(object):
 
     def pop_path(self, num):
         self.path = self.path.split('/', num)[-1]
+
+    def replace_path(self, pattern, replace):
+        self.path = re.sub(pattern, replace, self.path)
+
+    def search_path(self, pattern):
+        return bool(re.search(pattern, self.path))
+    
