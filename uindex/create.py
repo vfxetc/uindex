@@ -149,6 +149,7 @@ def _checksum_path(to_index, indexer):
 def _threaded_map(num_threads, func, *args_iters, **kwargs):
 
     sorted = kwargs.pop('sorted', True)
+    strict = kwargs.pop('strict', False)
 
     work_queue = Queue(num_threads)
     result_queue = Queue()
@@ -189,7 +190,7 @@ def _threaded_map(num_threads, func, *args_iters, **kwargs):
             ok, result = results.pop(next_job)
             if ok:
                 yield result
-            else:
+            elif strict:
                 raise result
             next_job += 1
 
@@ -216,6 +217,7 @@ def _threaded_map_target(work_queue, result_queue, func):
             try:
                 result = func(*args)
             except Exception as e:
+                printerr('# Exception during {}{}'.format(func.__name__, args))
                 result = e
                 ok = False
             else:
@@ -312,7 +314,13 @@ class Indexer(object):
 
                 abs_path = os.path.join(dir_path, name)
                 rel_path = os.path.relpath(abs_path, root)
-                st = os.lstat(abs_path)
+                
+                try:
+                    st = os.lstat(abs_path)
+                except Exception as e:
+                    printerr('# Exception during {}'.format(rel_path))
+                    printerr('# {}'.format(e))
+                    raise
 
                 # We only care about actual files.
                 if not S_ISREG(st.st_mode):
@@ -332,6 +340,9 @@ class Indexer(object):
                         continue
                     elif self.verbosity > 1:
                         printerr("# Reindexing changed {}".format(rel_path))
+                
+                elif self.verbosity > 1:
+                    printerr("# Indexing new {}".format(rel_path))
 
                 added_count += 1
                 added_bytes += st.st_size

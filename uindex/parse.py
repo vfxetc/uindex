@@ -25,6 +25,9 @@ def iter_entries(fh, pop_path=None, prepend_path=None, search_path=None, invert_
 
         values = line.split('\t')
         if columns is not None:
+            if len(columns) != len(values):
+                print('WARNING: Index parse failure at line {}; {}'.format(line_i, values), file=sys.stderr)
+                continue
             data = dict(zip(columns, values))
         elif len(values) == 7:
             # The first versions didn't specify columns.
