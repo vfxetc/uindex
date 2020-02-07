@@ -17,6 +17,7 @@ import stat
 import sys
 import threading
 import time
+import traceback
 
 from .parse import iter_entries
 from .utils import parse_bytes
@@ -28,6 +29,49 @@ from .utils import parse_bytes
 # for subsecond (slightly more than 6 digits), and that will
 # decrease as time goes on.
 STAT_TIME_DIGITS = int((53 - math.log(int(time.time()), 2)) / math.log(10, 2))
+
+
+# These types are from `zfs diff`.
+REG = 'F'
+LNK = '@'
+DIR = '/'
+# We don't really deal with below here TBH.
+BLK = 'B' # Block device.
+CHR = 'C' # Character device.
+DOOR = '>' # Door.
+FIFO = '|' # Named pipe.
+SOCK = '=' # Socket.
+PORT = 'P' # Event port.
+
+
+class WalkItem(object):
+
+    def __init__(self, parent, name):
+        
+        self.parent = parent
+        self.name = name
+        self.path = os.path.join(parent, name)
+        
+        self.stat = os.lstat(self.path)
+        mode = self.stat.st_mode
+        self.perms = stat.S_IMODE(mode)
+
+        self.is_reg = self.is_dir = self.is_lnk = self.is_special = False
+        if stat.S_ISREG(mode):
+            self.is_reg = True
+            self.type_code = REG
+        elif stat.S_ISDIR(mode):
+            self.is_dir = True
+            self.type_code = DIR
+        elif stat.S_ISLNK(mode):
+            self.is_lnk = True
+            self.type_code = LNK
+        else:
+            self.is_special = True
+            self.type_code = None
+
+    def __repr__(self):
+        return 'WalkItem({!r}, {!r})'.format(self.parent, self.name)
 
 
 def resumeable_walk(dir_, start=None):
@@ -45,41 +89,48 @@ def _resumeable_walk(dir_, start):
     else:
         this_start = next_start = None
 
-    dirs = []
-    non_dirs = []
+    items = []
 
-    names = sorted(os.listdir(dir_))
+    names = sorted(os.listdir(dir_), key=str.lower)
     for name in names:
 
         if this_start and this_start > name:
             continue
 
-        # We skip over things which are not directories or files.
-        path = os.path.join(dir_, name)
-        if os.path.isdir(path):
-            dirs.append(name)
-        elif os.path.isfile(path):
-            non_dirs.append(name)
+        try:
+            item = WalkItem(dir_, name)
+        except Exception as e:
+            printerr('# Exception in resumable walk:', e)
+            raise
+
+        if item.is_special:
+            continue
+        items.append(item)
 
     # Since files and dirs are yielded at the same time, files after
     # the start point will have already been processed, and will get
     # processed again unless we ignore this level entirely.
     if not next_start:
-        yield dir_, dirs, non_dirs
+        yield items
 
-    for name in dirs:
+    # The user is allowed to mutate the items.
 
-        if this_start and name > this_start:
+    for item in items:
+
+        if not item.is_dir:
+            continue
+
+        if this_start and item.name > this_start:
             next_start = None
 
-        for x in _resumeable_walk(os.path.join(dir_, name), next_start):
+        for x in _resumeable_walk(item.path, next_start):
             yield x
 
 
 
 _checksum_cache = {}
 
-def _checksum_path(to_index, indexer):
+def _checksum_path(item, indexer):
 
     algo_name = indexer.checksum_algo
     head = indexer.head
@@ -93,7 +144,7 @@ def _checksum_path(to_index, indexer):
 
     # We cache every checksum by device/inode so we don't bother re-indexing things which
     # are hardlinked.
-    st = to_index[2]
+    st = item.stat
     cache_key = (st.st_dev, st.st_ino, algo_key)
     try:
         checksum, ctime = _checksum_cache[cache_key]
@@ -103,47 +154,53 @@ def _checksum_path(to_index, indexer):
         pass
 
     hasher = getattr(hashlib, algo_name)()
-    with open(to_index[0], 'rb') as fh:
-        
-        loc = 0
 
-        for todo, is_tail in ((head, False), (tail, True)):
+    if item.is_reg:
 
-            if is_tail:
-                if tail:
-                    # Only do the remaining parts.
-                    offset = max(loc, st.st_size - tail)
-                    if offset == loc:
+        with open(item.path, 'rb') as fh:
+            
+            loc = 0
+
+            for todo, is_tail in ((head, False), (tail, True)):
+
+                if is_tail:
+                    if tail:
+                        # Only do the remaining parts.
+                        offset = max(loc, st.st_size - tail)
+                        if offset == loc:
+                            continue
+                        fh.seek(offset)
+                    else:
+                        # Don't bother with the tail if it isn't requested.
                         continue
-                    fh.seek(offset)
-                else:
-                    # Don't bother with the tail if it isn't requested.
-                    continue
 
-            chunksize = 65536
-            while todo is None or todo > 0:
-                if todo:
-                    chunksize = min(chunksize, todo)
-                try:
-                    chunk = fh.read(chunksize)
-                except IOError as e:
-                    # For some reason, some files in "System Volume Information"
-                    # throw an error no matter what you do.
-                    if e.errno != 1:
-                        raise
-                    return to_index, None
-                if not chunk:
-                    break
-                if todo:
-                    todo -= len(chunk)    
-                hasher.update(chunk)
+                chunksize = 65536
+                while todo is None or todo > 0:
+                    if todo:
+                        chunksize = min(chunksize, todo)
+                    try:
+                        chunk = fh.read(chunksize)
+                    except IOError as e:
+                        # For some reason, some files in "System Volume Information"
+                        # throw an error no matter what you do.
+                        if e.errno != 1:
+                            raise
+                        return item, None
+                    if not chunk:
+                        break
+                    if todo:
+                        todo -= len(chunk)    
+                    hasher.update(chunk)
 
-            loc = fh.tell()
+                loc = fh.tell()
 
+    elif item.is_lnk:
+        path = os.readlink(item.path)
+        hasher.update(path)
 
     checksum = '{}:{}'.format(algo_key, hasher.hexdigest())
     _checksum_cache[cache_key] = checksum, st.st_ctime
-    return to_index, checksum
+    return item, checksum
 
 
 def _threaded_map(num_threads, func, *args_iters, **kwargs):
@@ -204,6 +261,9 @@ def _threaded_map_scheduler(num_threads, work_queue, args_iters):
     try:
         for i, args in enumerate(itertools.izip(*args_iters)):
             work_queue.put((i, args))
+    except Exception as e:
+        traceback.print_exc()
+        raise
     finally:
         for _ in xrange(num_threads):
             work_queue.put((None, None))
@@ -223,6 +283,9 @@ def _threaded_map_target(work_queue, result_queue, func):
             else:
                 ok = True
             result_queue.put((job, ok, result))
+    except Exception as e:
+        traceback.print_exc()
+        raise
     finally:
         result_queue.put((None, None, None))
 
@@ -286,44 +349,38 @@ class Indexer(object):
         self.total_count = total_count = 0
         self.total_bytes = total_bytes = 0
 
-        for dir_path, dir_names, file_names in resumeable_walk(self.path_to_index, self.start):
+        for items in resumeable_walk(self.path_to_index, self.start):
 
             if path_excludes or name_excludes:
-                for names in (dir_names, file_names):
 
-                    i = 0
-                    while i < len(names):
+                i = 0
+                while i < len(items):
 
-                        name = names[i]
-                        exclude = False
+                    item = items[i]
+                    name = item.name
+                    exclude = False
 
-                        if name_excludes and any(r.match(name) for r in name_excludes):
+                    if name_excludes and any(r.match(name) for r in name_excludes):
+                        exclude = True
+
+                    elif path_excludes:
+                        rel_path = os.path.relpath(os.path.join(dir_path, name), root)
+                        if any(r.match(rel_path) for r in path_excludes):
                             exclude = True
 
-                        elif path_excludes:
-                            rel_path = os.path.relpath(os.path.join(dir_path, name), root)
-                            if any(r.match(rel_path) for r in path_excludes):
-                                exclude = True
+                    if exclude:
+                        items.pop(i)
+                    else:
+                        i += 1
 
-                        if exclude:
-                            names.pop(i)
-                        else:
-                            i += 1
+            for item in items:
 
-            for name in file_names:
-
-                abs_path = os.path.join(dir_path, name)
-                rel_path = os.path.relpath(abs_path, root)
-                
-                try:
-                    st = os.lstat(abs_path)
-                except Exception as e:
-                    printerr('# Exception during {}'.format(rel_path))
-                    printerr('# {}'.format(e))
-                    raise
+                abs_path = item.path
+                rel_path = item.rel_path = os.path.relpath(abs_path, root)
+                st = item.stat
 
                 # We only care about actual files.
-                if not S_ISREG(st.st_mode):
+                if not (item.is_reg or item.is_lnk):
                     continue
 
                 total_count += 1
@@ -347,7 +404,7 @@ class Indexer(object):
                 added_count += 1
                 added_bytes += st.st_size
 
-                yield abs_path, rel_path, st
+                yield item
 
         self.added_count = added_count
         self.added_bytes = added_bytes
@@ -374,6 +431,7 @@ class Indexer(object):
             columns='''
                 checksum
                 inode
+                type
                 perms
                 size
                 uid
@@ -388,7 +446,7 @@ class Indexer(object):
 
         last_flush = time.time()
 
-        for (abs_path, rel_path, st), checksum in _threaded_map(
+        for item, checksum in _threaded_map(
             threads,
             _checksum_path,
             self._iter_file_paths(),
@@ -398,22 +456,23 @@ class Indexer(object):
 
             # Sometimes there are wierd errors.
             if not checksum:
-                out.write('#scan-error {}\n'.format(json.dumps(dict(path=rel_path))))
+                out.write('#scan-error {}\n'.format(json.dumps(dict(path=item.rel_path))))
                 self.error_count += 1
                 continue
 
             formatted = '\t'.join(str(x) for x in (
                 checksum,
-                st.st_ino,
-                '{:o}'.format(st.st_mode & 0o7777),
-                st.st_size,
-                st.st_uid,
-                st.st_gid,
+                item.stat.st_ino,
+                item.type_code,
+                '{:o}'.format(item.perms),
+                item.stat.st_size,
+                item.stat.st_uid,
+                item.stat.st_gid,
 
-                '{:.{}f}'.format(st.st_mtime, STAT_TIME_DIGITS),
-                '{:.{}f}'.format(st.st_ctime, STAT_TIME_DIGITS),
+                '{:.{}f}'.format(item.stat.st_mtime, STAT_TIME_DIGITS),
+                '{:.{}f}'.format(item.stat.st_ctime, STAT_TIME_DIGITS),
 
-                rel_path,
+                item.rel_path,
             ))
             if self.verbosity:
                 print(formatted)
@@ -444,6 +503,7 @@ class Indexer(object):
 def printerr(*args, **kwargs):
     kwargs['file'] = sys.stderr
     print(*args, **kwargs)
+
 
 def main(argv=None):
 

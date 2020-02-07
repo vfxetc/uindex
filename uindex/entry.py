@@ -5,7 +5,7 @@ from .utils import cached_property
 
 class Entry(object):
 
-    def __init__(self, path, checksum, perms, size, uid, gid, mtime, meta, ctime=None, inode=None):
+    def __init__(self, path, checksum, perms, size, uid, gid, mtime, meta, ctime=None, inode=None, type=None):
 
         self.meta = dict(meta or {})
 
@@ -18,7 +18,8 @@ class Entry(object):
         self.mtime = float(mtime)
         self.ctime = float(ctime) if ctime else None
         self.inode = int(inode) if inode else None
-
+        self.type  = type
+        
         self.raw_time = ctime or mtime
 
     @cached_property
