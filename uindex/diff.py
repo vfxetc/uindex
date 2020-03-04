@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--replace-a', '--ra', nargs=2)
     parser.add_argument('--replace-b', '--rb', nargs=2)
     parser.add_argument('-v', '--invert-search', action='store_true')
+    parser.add_argument('-L', '--ignore-links', action='count')
     parser.add_argument('a')
     parser.add_argument('b')
     args = parser.parse_args()
@@ -43,6 +44,8 @@ def main():
             X.pop(0)
         return x
 
+    last_link = None
+
     while A and B:
 
         a = A[0]
@@ -55,16 +58,29 @@ def main():
             pop(A)
             pop(B)
             match += 1
+            last_link = None
 
         elif ax < bx:
-            print '-', a.checksum, a.path
-            pop(A)
-            missing += 1
+            if last_link  and a.path.startswith(last_link):
+                if args.ignore_links > 1:
+                    print ' ', a.checksum, a.path
+                pop(A)
+                match += 1
+            else:
+                print '-', a.checksum, a.path
+                pop(A)
+                missing += 1
 
         else:
-            print '+', b.checksum, b.path
-            pop(B)
-            extra += 1
+            if b.type == '@' and args.ignore_links:
+                last_link = b.path + '/'
+                if args.ignore_links > 1:
+                    print '@', b.checksum, b.path
+                pop(B)
+            else:
+                print '+', b.checksum, b.path
+                pop(B)
+                extra += 1
 
     for a in A:
         print '-', a.checksum, a.path
