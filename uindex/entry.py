@@ -29,7 +29,7 @@ class Entry(object):
     @cached_property
     def epsilon(self):
         try:
-            digits = self._raw_time.split('.')[1]
+            digits = self.raw_time.split('.')[1]
         except IndexError:
             return 0
         return 2 * 10 ** -digits

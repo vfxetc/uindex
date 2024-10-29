@@ -9,7 +9,7 @@ from .parse import iter_entries
 
 def iter_relpaths(path):
     chunks = path.split('/')
-    for i in xrange(len(chunks)):
+    for i in range(len(chunks)):
         yield '/'.join(chunks[i:])
 
 

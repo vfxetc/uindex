@@ -22,7 +22,7 @@ def main():
 
     match = missing = extra = 0
 
-    print '---', args.a
+    print('---', args.a)
     A = sorted(iter_entries(open(args.a),
         prepend_path=args.prepend_a,
         replace_path=args.replace_a,
@@ -30,7 +30,7 @@ def main():
         invert_search=args.invert_search,
     ), key=lambda x: x.path)
 
-    print '+++', args.b
+    print('+++', args.b)
     B = sorted(iter_entries(open(args.b),
         prepend_path=args.prepend_b,
         replace_path=args.replace_b,
@@ -63,11 +63,11 @@ def main():
         elif ax < bx:
             if last_link  and a.path.startswith(last_link):
                 if args.ignore_links > 1:
-                    print ' ', a.checksum, a.path
+                    print(' ', a.checksum, a.path)
                 pop(A)
                 match += 1
             else:
-                print '-', a.checksum, a.path
+                print('-', a.checksum, a.path)
                 pop(A)
                 missing += 1
 
@@ -75,21 +75,21 @@ def main():
             if b.type == '@' and args.ignore_links:
                 last_link = b.path + '/'
                 if args.ignore_links > 1:
-                    print '@', b.checksum, b.path
+                    print('@', b.checksum, b.path)
                 pop(B)
             else:
-                print '+', b.checksum, b.path
+                print('+', b.checksum, b.path)
                 pop(B)
                 extra += 1
 
     for a in A:
-        print '-', a.checksum, a.path
+        print('-', a.checksum, a.path)
         missing += 1
     for b in B:
-        print '+', b.checksum, b.path
+        print('+', b.checksum, b.path)
         extra += 1
 
-    print '{} match, {} missing, {} extra.'.format(match, missing, extra)
+    print('{} match, {} missing, {} extra.'.format(match, missing, extra))
     exit()
 
 

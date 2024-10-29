@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-
-from Queue import Queue, Empty
+from queue import Queue, Empty
 from uuid import uuid4
 import argparse
 import datetime
@@ -219,7 +217,7 @@ def _threaded_map(num_threads, func, *args_iters, **kwargs):
     scheduler.daemon = True
     scheduler.start()
 
-    for _ in xrange(num_threads):
+    for _ in range(num_threads):
         worker = threading.Thread(target=_threaded_map_target, args=(work_queue, result_queue, func))
         worker.daemon = True
         worker.start()
@@ -259,13 +257,13 @@ def _threaded_map(num_threads, func, *args_iters, **kwargs):
 
 def _threaded_map_scheduler(num_threads, work_queue, args_iters):
     try:
-        for i, args in enumerate(itertools.izip(*args_iters)):
+        for i, args in enumerate(zip(*args_iters)):
             work_queue.put((i, args))
     except Exception as e:
         traceback.print_exc()
         raise
     finally:
-        for _ in xrange(num_threads):
+        for _ in range(num_threads):
             work_queue.put((None, None))
 
 def _threaded_map_target(work_queue, result_queue, func):
@@ -277,7 +275,7 @@ def _threaded_map_target(work_queue, result_queue, func):
             try:
                 result = func(*args)
             except Exception as e:
-                printerr('# Exception during {}{}'.format(func.__name__, args))
+                printerr('# Exception during {}{}: {}'.format(func.__name__, args, e))
                 result = e
                 ok = False
             else:
@@ -322,15 +320,17 @@ class Indexer(object):
         self.existing = {}
 
     def auto_start(self, index_path):
-        with open(index_path, 'rb') as out:
-            out.seek(-1000, 2)
+        with open(index_path, 'r') as out:
+            out.seek(0, 2)
+            pos = out.tell()
+            out.seek(pos - 2000, 0)
             last = out.read().splitlines()[-1]
             rel_start = last.split('\t')[-1]
             self.start = os.path.join(self.root, rel_start)
 
     def load_existing(self, input_):
-        if isinstance(input_, basestring):
-            input_ = open(input_, 'rb')
+        if isinstance(input_, str):
+            input_ = open(input_, 'r')
         for entry in iter_entries(input_):
             self.existing[entry.path] = entry
 
@@ -588,7 +588,7 @@ def main(argv=None):
         feedback("Reading existing index to update...")
         indexer.load_existing(args.out)
 
-    out = open(args.out, 'ab' if (args.start or args.auto_start or args.update) else 'wb') if args.out else sys.stdout
+    out = open(args.out, 'a' if (args.start or args.auto_start or args.update) else 'w') if args.out else sys.stdout
     indexer.run(out,
         threads=args.threads,
         sorted=not args.unsorted,
